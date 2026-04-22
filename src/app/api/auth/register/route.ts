@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { hashPassword, createToken, toSafeUser } from '@/lib/auth'
+import { hashPassword, toSafeUser } from '@/lib/auth'
 
 export async function POST(request: Request) {
   try {
     const { email, password } = await request.json()
 
-    // Validation
     if (!email || !password) {
       return NextResponse.json(
         { error: 'Email and password are required' },
@@ -14,7 +13,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Email format check
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
       return NextResponse.json(
@@ -23,7 +21,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Password strength check
     if (password.length < 8) {
       return NextResponse.json(
         { error: 'Password must be at least 8 characters' },
@@ -31,7 +28,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Check if email already exists
     const { data: existingUser } = await supabaseAdmin
       .from('users')
       .select('id')
@@ -45,10 +41,8 @@ export async function POST(request: Request) {
       )
     }
 
-    // Hash password
     const password_hash = await hashPassword(password)
 
-    // Create user
     const { data: newUser, error: createError } = await supabaseAdmin
       .from('users')
       .insert({
@@ -93,30 +87,15 @@ export async function POST(request: Request) {
       user_id: newUser.id,
     })
 
-    // Create JWT token
-    const token = await createToken(newUser.id, newUser.email, 'USER')
-
-    const safeUser = toSafeUser(newUser)
-
-    const response = NextResponse.json(
+    // No cookie set — user must log in manually
+    return NextResponse.json(
       {
-        data: safeUser,
+        data: toSafeUser(newUser),
         message: 'Account created successfully',
-        redirectTo: '/dashboard',
+        redirectTo: '/auth/login',
       },
       { status: 201 }
     )
-
-    // Set cookie
-    response.cookies.set('gt_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-      path: '/',
-    })
-
-    return response
   } catch (error) {
     console.error('Register error:', error)
     return NextResponse.json(

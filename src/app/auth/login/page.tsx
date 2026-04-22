@@ -1,11 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import Link from 'next/link'
 import { useAuth } from '@/context/AuthContext'
+import { useSearchParams } from 'next/navigation'
 
-export default function LoginPage() {
+function LoginContent() {
   const { login } = useAuth()
+  const searchParams = useSearchParams()
+  const registered = searchParams.get('registered') === '1'
+
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -28,38 +32,27 @@ export default function LoginPage() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'radial-gradient(ellipse at 50% 0%, rgba(59,130,246,0.15) 0%, #050810 60%)',
-        position: 'relative',
-        overflow: 'hidden',
-        padding: '20px',
-      }}
-    >
-      {/* Grid background */}
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'radial-gradient(ellipse at 50% 0%, rgba(59,130,246,0.15) 0%, #050810 60%)',
+      position: 'relative',
+      overflow: 'hidden',
+      padding: '20px',
+    }}>
+      {/* Grid */}
       <div style={{
-        position: 'absolute',
-        inset: 0,
-        opacity: 0.08,
+        position: 'absolute', inset: 0, opacity: 0.08,
         backgroundImage: 'linear-gradient(rgba(59,130,246,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(59,130,246,0.5) 1px, transparent 1px)',
-        backgroundSize: '50px 50px',
+        backgroundSize: '50px 50px', pointerEvents: 'none',
       }} />
 
-      {/* Glow */}
       <div style={{
-        position: 'absolute',
-        top: '10%',
-        left: '25%',
-        width: '300px',
-        height: '300px',
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(59,130,246,0.2), transparent)',
-        filter: 'blur(60px)',
-        pointerEvents: 'none',
+        position: 'absolute', top: '10%', left: '25%', width: '300px', height: '300px',
+        borderRadius: '50%', background: 'radial-gradient(circle, rgba(59,130,246,0.2), transparent)',
+        filter: 'blur(60px)', pointerEvents: 'none',
       }} />
 
       <div style={{ width: '100%', maxWidth: '420px', position: 'relative', zIndex: 10 }}>
@@ -67,15 +60,10 @@ export default function LoginPage() {
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <div style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: '64px',
-            height: '64px',
-            borderRadius: '16px',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: '64px', height: '64px', borderRadius: '16px',
             background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-            boxShadow: '0 0 30px rgba(59,130,246,0.5)',
-            marginBottom: '16px',
+            boxShadow: '0 0 30px rgba(59,130,246,0.5)', marginBottom: '16px',
           }}>
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
@@ -90,6 +78,34 @@ export default function LoginPage() {
           </p>
         </div>
 
+        {/* Registration success banner */}
+        {registered && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '12px',
+            padding: '14px 18px', borderRadius: '12px', marginBottom: '20px',
+            background: 'rgba(16,185,129,0.1)',
+            border: '1px solid rgba(16,185,129,0.35)',
+          }}>
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
+              background: 'rgba(16,185,129,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <div>
+              <div style={{ color: '#10b981', fontWeight: '700', fontSize: '14px' }}>
+                Account created successfully!
+              </div>
+              <div style={{ color: '#6ee7b7', fontSize: '12px', marginTop: '2px' }}>
+                Sign in below to access your dashboard
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Card */}
         <div style={{
           background: 'rgba(255,255,255,0.03)',
@@ -99,28 +115,24 @@ export default function LoginPage() {
           padding: '36px',
         }}>
           <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'white', margin: '0 0 4px 0' }}>
-            Welcome back
+            {registered ? 'Welcome to Ghost Trader!' : 'Welcome back'}
           </h2>
           <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 28px 0' }}>
-            Sign in to your trading dashboard
+            {registered ? 'Sign in to start your trading journey' : 'Sign in to your trading dashboard'}
           </p>
 
           {/* Error */}
           {error && (
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '12px 14px',
-              borderRadius: '10px',
-              marginBottom: '20px',
-              background: 'rgba(239,68,68,0.1)',
-              border: '1px solid rgba(239,68,68,0.3)',
-              color: '#f87171',
-              fontSize: '14px',
+              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '12px 14px', borderRadius: '10px', marginBottom: '20px',
+              background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)',
+              color: '#f87171', fontSize: '14px',
             }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               {error}
             </div>
@@ -139,18 +151,14 @@ export default function LoginPage() {
                 onChange={e => setEmail(e.target.value)}
                 autoComplete="email"
                 style={{
-                  width: '100%',
-                  padding: '12px 16px',
+                  width: '100%', padding: '12px 16px',
                   background: 'rgba(255,255,255,0.05)',
                   border: '1px solid rgba(59,130,246,0.25)',
-                  borderRadius: '10px',
-                  color: 'white',
-                  fontSize: '14px',
-                  outline: 'none',
-                  boxSizing: 'border-box',
+                  borderRadius: '10px', color: 'white', fontSize: '14px',
+                  outline: 'none', boxSizing: 'border-box',
                 }}
-                onFocus={e => e.target.style.borderColor = 'rgba(59,130,246,0.7)'}
-                onBlur={e => e.target.style.borderColor = 'rgba(59,130,246,0.25)'}
+                onFocus={e => (e.target.style.borderColor = 'rgba(59,130,246,0.7)')}
+                onBlur={e => (e.target.style.borderColor = 'rgba(59,130,246,0.25)')}
               />
             </div>
 
@@ -167,36 +175,17 @@ export default function LoginPage() {
                   onChange={e => setPassword(e.target.value)}
                   autoComplete="current-password"
                   style={{
-                    width: '100%',
-                    padding: '12px 44px 12px 16px',
+                    width: '100%', padding: '12px 44px 12px 16px',
                     background: 'rgba(255,255,255,0.05)',
                     border: '1px solid rgba(59,130,246,0.25)',
-                    borderRadius: '10px',
-                    color: 'white',
-                    fontSize: '14px',
-                    outline: 'none',
-                    boxSizing: 'border-box',
+                    borderRadius: '10px', color: 'white', fontSize: '14px',
+                    outline: 'none', boxSizing: 'border-box',
                   }}
-                  onFocus={e => e.target.style.borderColor = 'rgba(59,130,246,0.7)'}
-                  onBlur={e => e.target.style.borderColor = 'rgba(59,130,246,0.25)'}
+                  onFocus={e => (e.target.style.borderColor = 'rgba(59,130,246,0.7)')}
+                  onBlur={e => (e.target.style.borderColor = 'rgba(59,130,246,0.25)')}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  style={{
-                    position: 'absolute',
-                    right: '12px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: '#64748b',
-                    padding: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
-                >
+                <button type="button" onClick={() => setShowPassword(!showPassword)}
+                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex', alignItems: 'center', padding: '4px' }}>
                   {showPassword ? (
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
@@ -213,7 +202,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Forgot password */}
+            {/* Forgot */}
             <div style={{ textAlign: 'right', marginBottom: '24px' }}>
               <Link href="/auth/forgot-password" style={{ color: '#3b82f6', fontSize: '13px', textDecoration: 'none' }}>
                 Forgot password?
@@ -225,16 +214,11 @@ export default function LoginPage() {
               type="submit"
               disabled={loading}
               style={{
-                width: '100%',
-                padding: '13px',
+                width: '100%', padding: '13px',
                 background: loading ? 'rgba(59,130,246,0.5)' : 'linear-gradient(135deg, #3b82f6, #2563eb)',
-                border: 'none',
-                borderRadius: '10px',
-                color: 'white',
-                fontSize: '15px',
-                fontWeight: '700',
+                border: 'none', borderRadius: '10px', color: 'white',
+                fontSize: '15px', fontWeight: '700',
                 cursor: loading ? 'not-allowed' : 'pointer',
-                transition: 'all 0.2s',
                 boxShadow: loading ? 'none' : '0 4px 20px rgba(59,130,246,0.35)',
               }}
             >
@@ -255,5 +239,17 @@ export default function LoginPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050810' }}>
+        <div style={{ color: '#3b82f6', fontSize: '14px' }}>Loading...</div>
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   )
 }

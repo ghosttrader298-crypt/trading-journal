@@ -13,7 +13,6 @@ export const POST = requireUser(async (req, _ctx, user: JWTPayload) => {
     return NextResponse.json({ error: 'Message is required' }, { status: 400 })
   }
 
-  // Fetch user's recent trades for context
   const thirtyDaysAgo = new Date()
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
 
@@ -51,7 +50,7 @@ Use data from their stats when relevant. Keep responses under 200 words unless a
 
   try {
     const completion = await groq.chat.completions.create({
-      model: 'llama3-8b-8192',
+      model: 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: message },

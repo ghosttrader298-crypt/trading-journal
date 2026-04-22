@@ -8,7 +8,7 @@ interface AuthContextType {
   user: SafeUser | null
   loading: boolean
   login: (email: string, password: string) => Promise<{ error?: string }>
-  register: (email: string, password: string) => Promise<{ error?: string }>
+  register: (email: string, password: string) => Promise<{ error?: string; success?: boolean }>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
 }
@@ -64,9 +64,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       const data = await res.json()
       if (!res.ok) return { error: data.error }
-      setUser(data.data)
-      router.push(data.redirectTo)
-      return {}
+      // Do NOT set user or auto-login
+      // Redirect to login with success flag
+      router.push('/auth/login?registered=1')
+      return { success: true }
     } catch {
       return { error: 'Network error. Please try again.' }
     }
