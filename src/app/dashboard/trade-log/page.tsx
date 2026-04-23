@@ -10,12 +10,86 @@ const DIRECTIONS = ['ALL', 'BUY', 'SELL']
 const SESSIONS = ['ASIAN', 'LONDON', 'NEW_YORK', 'OVERLAP']
 const TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1']
 
+function generateMQLCode(apiKey: string, version: 4 | 5): string {
+  const endpoint = typeof window !== 'undefined'
+    ? `${window.location.origin}/api/ea-sync`
+    : 'https://your-domain.com/api/ea-sync'
+
+  return `//+------------------------------------------------------------------+
+//| Ghost Trader EA — Auto Sync v1.0                                  |
+//+------------------------------------------------------------------+
+#property copyright "Ghost Trader"
+#property version   "1.0"
+#property strict
+
+input string ApiKey = "${apiKey}";
+input string ServerUrl = "${endpoint}";
+input string AccountId = "YOUR_ACCOUNT_ID_HERE";
+input int    SyncIntervalSeconds = 30;
+
+datetime lastSync = 0;
+
+int OnInit() {
+   Print("Ghost Trader EA initialized. Syncing to: ", ServerUrl);
+   return(INIT_SUCCEEDED);
+}
+
+void OnTick() {
+   if(TimeCurrent() - lastSync < SyncIntervalSeconds) return;
+   lastSync = TimeCurrent();
+   SyncTrades();
+}
+
+void SyncTrades() {
+   int total = OrdersHistoryTotal();
+   string jsonBody = "{";
+   jsonBody += "\\"account_id\\": \\"" + AccountId + "\\",";
+   jsonBody += "\\"trades\\": [";
+
+   for(int i = 0; i < MathMin(total, 50); i++) {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
+      if(i > 0) jsonBody += ",";
+      jsonBody += "{";
+      jsonBody += "\\"ticket\\": \\"" + IntegerToString(OrderTicket()) + "\\",";
+      jsonBody += "\\"symbol\\": \\"" + OrderSymbol() + "\\",";
+      jsonBody += "\\"direction\\": \\"" + (OrderType() == 0 ? "BUY" : "SELL") + "\\",";
+      jsonBody += "\\"entry_price\\": " + DoubleToString(OrderOpenPrice(), 5) + ",";
+      jsonBody += "\\"exit_price\\": " + DoubleToString(OrderClosePrice(), 5) + ",";
+      jsonBody += "\\"stop_loss\\": " + DoubleToString(OrderStopLoss(), 5) + ",";
+      jsonBody += "\\"take_profit\\": " + DoubleToString(OrderTakeProfit(), 5) + ",";
+      jsonBody += "\\"lots\\": " + DoubleToString(OrderLots(), 2) + ",";
+      jsonBody += "\\"profit\\": " + DoubleToString(OrderProfit(), 2) + ",";
+      jsonBody += "\\"commission\\": " + DoubleToString(OrderCommission(), 2) + ",";
+      jsonBody += "\\"open_time\\": \\"" + TimeToString(OrderOpenTime()) + "\\",";
+      jsonBody += "\\"close_time\\": \\"" + TimeToString(OrderCloseTime()) + "\\",";
+      jsonBody += "\\"comment\\": \\"" + OrderComment() + "\\"";
+      jsonBody += "}";
+   }
+
+   jsonBody += "]}";
+
+   char data[];
+   char result[];
+   string headers = "Content-Type: application/json\\r\\nx-api-key: " + ApiKey;
+   StringToCharArray(jsonBody, data, 0, StringLen(jsonBody));
+   int res = WebRequest("POST", ServerUrl, headers, 5000, data, result, headers);
+
+   if(res == 200) {
+      Print("Ghost Trader: Sync successful");
+   } else {
+      Print("Ghost Trader: Sync failed, code: ", res);
+   }
+}
+`
+}
+
 function TradeLogContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { activeAccount } = useAccounts()
-  const { trades, loading, createTrade, deleteTrade } = useTrades({ account_id: activeAccount?.id })
+  const { trades, loading, createTrade, deleteTrade, refetch } = useTrades({ account_id: activeAccount?.id })
 
+  // Existing state
   const [marketFilter, setMarketFilter] = useState('ALL')
   const [dirFilter, setDirFilter] = useState('ALL')
   const [search, setSearch] = useState('')
@@ -36,6 +110,17 @@ function TradeLogContent() {
     opened_at: new Date().toISOString().slice(0, 16),
     closed_at: new Date().toISOString().slice(0, 16),
   })
+
+  // Import/EA state
+  const [showImportModal, setShowImportModal] = useState(false)
+  const [showEAModal, setShowEAModal] = useState(false)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importPreview, setImportPreview] = useState<any[]>([])
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<any>(null)
+  const [eaKey, setEaKey] = useState<string | null>(null)
+  const [eaKeyLoading, setEaKeyLoading] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
 
   const filtered = useMemo(() => {
     return trades.filter(t => {
@@ -59,6 +144,54 @@ function TradeLogContent() {
       total_pnl,
     }
   }, [filtered])
+
+  // Import handlers
+  const handleFileSelect = (file: File) => {
+    setImportFile(file)
+    setImportResult(null)
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = e.target?.result as string
+      const lines = text.split('\n').filter(l => l.trim()).slice(0, 6)
+      const headers = lines[0]?.split(',').map(h => h.trim().replace(/"/g, '')) || []
+      const rows = lines.slice(1).map(line =>
+        line.split(',').map(c => c.trim().replace(/"/g, ''))
+      )
+      setImportPreview([headers, ...rows])
+    }
+    reader.readAsText(file)
+  }
+
+  const handleImport = async () => {
+    if (!importFile || !activeAccount?.id) return
+    setImporting(true)
+    const fd = new FormData()
+    fd.append('file', importFile)
+    fd.append('account_id', activeAccount.id)
+    const res = await fetch('/api/import/csv', { method: 'POST', body: fd })
+    const data = await res.json()
+    setImporting(false)
+    if (res.ok) {
+      setImportResult(data.data)
+      refetch?.()
+    } else {
+      setImportResult({ error: data.error })
+    }
+  }
+
+  const loadEAKey = async () => {
+    const res = await fetch('/api/user/ea-key')
+    const data = await res.json()
+    setEaKey(data.data?.ea_api_key || null)
+  }
+
+  const generateEAKey = async () => {
+    setEaKeyLoading(true)
+    const res = await fetch('/api/user/ea-key', { method: 'POST' })
+    const data = await res.json()
+    setEaKey(data.data?.ea_api_key)
+    setEaKeyLoading(false)
+  }
 
   const handleSave = async () => {
     if (!form.symbol) return
@@ -97,20 +230,47 @@ function TradeLogContent() {
     <div style={{ maxWidth: '1400px' }}>
 
       {/* Header */}
-      <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+      <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ color: 'white', fontWeight: '800', fontSize: '20px', margin: '0 0 4px 0' }}>Trade Log</h1>
           <p style={{ color: '#475569', fontSize: '13px', margin: 0 }}>Track and analyse every trade</p>
         </div>
-        <button onClick={() => setShowAddModal(true)}
-          style={{
-            padding: '10px 16px', borderRadius: '10px', border: 'none',
-            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
-            color: 'white', fontWeight: '700', fontSize: '13px', cursor: 'pointer',
-            whiteSpace: 'nowrap', flexShrink: 0,
-          }}>
-          + Add Trade
-        </button>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setShowImportModal(true)}
+            style={{
+              padding: '9px 14px', borderRadius: '10px',
+              border: '1px solid rgba(59,130,246,0.3)',
+              background: 'rgba(59,130,246,0.08)',
+              color: '#60a5fa', fontWeight: '600', fontSize: '13px',
+              cursor: 'pointer', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+            📥 Import CSV
+          </button>
+          <button
+            onClick={() => { setShowEAModal(true); loadEAKey() }}
+            style={{
+              padding: '9px 14px', borderRadius: '10px',
+              border: '1px solid rgba(168,85,247,0.3)',
+              background: 'rgba(168,85,247,0.08)',
+              color: '#c084fc', fontWeight: '600', fontSize: '13px',
+              cursor: 'pointer', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: '6px',
+            }}>
+            🤖 EA Auto-Sync
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            style={{
+              padding: '10px 16px', borderRadius: '10px', border: 'none',
+              background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+              color: 'white', fontWeight: '700', fontSize: '13px',
+              cursor: 'pointer', whiteSpace: 'nowrap',
+            }}>
+            + Add Trade
+          </button>
+        </div>
       </div>
 
       {/* Stats strip */}
@@ -171,7 +331,7 @@ function TradeLogContent() {
         </div>
       </div>
 
-      {/* Trade list — mobile cards + desktop table */}
+      {/* Trade list */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '40px', color: '#475569' }}>Loading trades...</div>
       ) : filtered.length === 0 ? (
@@ -285,9 +445,7 @@ function TradeLogContent() {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <div>
-                <h3 style={{ color: 'white', fontWeight: '800', fontSize: '18px', margin: '0 0 4px 0' }}>
-                  {selectedTrade.symbol}
-                </h3>
+                <h3 style={{ color: 'white', fontWeight: '800', fontSize: '18px', margin: '0 0 4px 0' }}>{selectedTrade.symbol}</h3>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <span style={{
                     fontSize: '11px', fontWeight: '700', padding: '2px 8px', borderRadius: '4px',
@@ -377,7 +535,7 @@ function TradeLogContent() {
 
       {/* Add Trade Modal */}
       {showAddModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', padding: '0' }} className="modal-backdrop">
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} className="modal-backdrop">
           <div style={{
             background: '#0a0f1e', border: '1px solid rgba(59,130,246,0.25)',
             borderRadius: '20px 20px 0 0',
@@ -390,7 +548,6 @@ function TradeLogContent() {
                 style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '22px' }}>×</button>
             </div>
 
-            {/* Step tabs */}
             <div style={{ display: 'flex', gap: '4px', marginBottom: '20px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '4px' }}>
               {[{ n: 1, label: 'Basic' }, { n: 2, label: 'Strategy' }, { n: 3, label: 'Psychology' }].map(({ n, label }) => (
                 <button key={n} onClick={() => setAddStep(n)}
@@ -403,7 +560,6 @@ function TradeLogContent() {
               ))}
             </div>
 
-            {/* Step 1 */}
             {addStep === 1 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -419,7 +575,6 @@ function TradeLogContent() {
                     </select>
                   </div>
                 </div>
-
                 <div>
                   <label style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '5px' }}>Direction *</label>
                   <div style={{ display: 'flex', gap: '8px' }}>
@@ -434,7 +589,6 @@ function TradeLogContent() {
                     ))}
                   </div>
                 </div>
-
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   {[
                     { k: 'entry_price', label: 'Entry Price' },
@@ -453,7 +607,6 @@ function TradeLogContent() {
                     </div>
                   ))}
                 </div>
-
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <div>
                     <label style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '5px' }}>Opened At</label>
@@ -467,7 +620,6 @@ function TradeLogContent() {
               </div>
             )}
 
-            {/* Step 2 */}
             {addStep === 2 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 {[
@@ -507,7 +659,6 @@ function TradeLogContent() {
               </div>
             )}
 
-            {/* Step 3 */}
             {addStep === 3 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 {[
@@ -553,7 +704,6 @@ function TradeLogContent() {
               </div>
             )}
 
-            {/* Actions */}
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
               {addStep > 1 && (
                 <button onClick={() => setAddStep(addStep - 1)}
@@ -577,6 +727,260 @@ function TradeLogContent() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Import Modal */}
+      {showImportModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{
+            background: '#0a0f1e', border: '1px solid rgba(59,130,246,0.25)',
+            borderRadius: '20px', width: '100%', maxWidth: '620px',
+            maxHeight: '90vh', overflowY: 'auto', padding: '28px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ color: 'white', fontWeight: '800', fontSize: '20px', margin: '0 0 4px 0' }}>📥 Import CSV</h2>
+                <p style={{ color: '#475569', fontSize: '13px', margin: 0 }}>Supports MT4, MT5, cTrader and generic broker exports</p>
+              </div>
+              <button onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportResult(null) }}
+                style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '22px' }}>×</button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+              {['MT4', 'MT5', 'cTrader', 'TradingView', 'Generic CSV'].map(f => (
+                <span key={f} style={{
+                  padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600',
+                  background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)', color: '#60a5fa',
+                }}>{f}</span>
+              ))}
+            </div>
+
+            {!importResult && (
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f) }}
+                onClick={() => document.getElementById('csv-file-input')?.click()}
+                style={{
+                  border: `2px dashed ${dragOver ? '#3b82f6' : importFile ? 'rgba(16,185,129,0.5)' : 'rgba(59,130,246,0.25)'}`,
+                  borderRadius: '14px', padding: '32px', textAlign: 'center', cursor: 'pointer',
+                  background: dragOver ? 'rgba(59,130,246,0.08)' : importFile ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.02)',
+                  transition: 'all 0.2s', marginBottom: '16px',
+                }}>
+                <div style={{ fontSize: '36px', marginBottom: '10px' }}>{importFile ? '✅' : '📂'}</div>
+                <div style={{ color: importFile ? '#10b981' : 'white', fontWeight: '700', fontSize: '15px', marginBottom: '6px' }}>
+                  {importFile ? importFile.name : 'Drop your CSV file here'}
+                </div>
+                <div style={{ color: '#475569', fontSize: '13px' }}>
+                  {importFile ? `${(importFile.size / 1024).toFixed(1)} KB • Click to change` : 'or click to browse — .csv files only'}
+                </div>
+                <input id="csv-file-input" type="file" accept=".csv" style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleFileSelect(f) }} />
+              </div>
+            )}
+
+            {importPreview.length > 0 && !importResult && (
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Preview — first {importPreview.length - 1} rows
+                </div>
+                <div style={{ overflowX: 'auto', borderRadius: '10px', border: '1px solid rgba(59,130,246,0.15)' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                    <thead>
+                      <tr style={{ background: 'rgba(59,130,246,0.08)' }}>
+                        {importPreview[0]?.slice(0, 8).map((h: string, i: number) => (
+                          <th key={i} style={{ padding: '8px 10px', color: '#60a5fa', fontWeight: '700', textAlign: 'left', whiteSpace: 'nowrap', borderBottom: '1px solid rgba(59,130,246,0.1)' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.slice(1).map((row: string[], i: number) => (
+                        <tr key={i} style={{ borderBottom: '1px solid rgba(59,130,246,0.06)' }}>
+                          {row.slice(0, 8).map((cell: string, j: number) => (
+                            <td key={j} style={{ padding: '7px 10px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{cell || '-'}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {importResult && (
+              <div style={{
+                padding: '20px', borderRadius: '14px', marginBottom: '20px',
+                background: importResult.error ? 'rgba(239,68,68,0.1)' : 'rgba(16,185,129,0.1)',
+                border: `1px solid ${importResult.error ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.3)'}`,
+              }}>
+                {importResult.error ? (
+                  <div style={{ color: '#ef4444', fontWeight: '600' }}>❌ {importResult.error}</div>
+                ) : (
+                  <>
+                    <div style={{ color: '#10b981', fontWeight: '800', fontSize: '18px', marginBottom: '12px' }}>✅ Import Complete</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      {[
+                        { label: 'Format Detected', value: importResult.format_detected },
+                        { label: 'Total Rows', value: importResult.total_rows },
+                        { label: 'Imported', value: importResult.imported, color: '#10b981' },
+                        { label: 'Duplicates Skipped', value: importResult.duplicates, color: '#f59e0b' },
+                        { label: 'Errors', value: importResult.errors, color: importResult.errors > 0 ? '#ef4444' : '#94a3b8' },
+                      ].map(({ label, value, color }) => (
+                        <div key={label} style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '8px', padding: '10px' }}>
+                          <div style={{ color: '#475569', fontSize: '11px', fontWeight: '600', textTransform: 'uppercase', marginBottom: '3px' }}>{label}</div>
+                          <div style={{ color: color || 'white', fontWeight: '700', fontSize: '18px' }}>{value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportResult(null) }}
+                style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1px solid rgba(59,130,246,0.2)', background: 'transparent', color: '#94a3b8', fontWeight: '600', cursor: 'pointer' }}>
+                {importResult ? 'Close' : 'Cancel'}
+              </button>
+              {!importResult && (
+                <button onClick={handleImport} disabled={!importFile || importing}
+                  style={{
+                    flex: 2, padding: '12px', borderRadius: '10px', border: 'none',
+                    background: !importFile || importing ? 'rgba(59,130,246,0.3)' : 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                    color: 'white', fontWeight: '700', cursor: !importFile || importing ? 'not-allowed' : 'pointer',
+                  }}>
+                  {importing ? '⏳ Importing...' : `📥 Import ${importFile ? 'Trades' : 'File'}`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EA Auto-Sync Modal */}
+      {showEAModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{
+            background: '#0a0f1e', border: '1px solid rgba(168,85,247,0.25)',
+            borderRadius: '20px', width: '100%', maxWidth: '580px',
+            maxHeight: '90vh', overflowY: 'auto', padding: '28px',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ color: 'white', fontWeight: '800', fontSize: '20px', margin: '0 0 4px 0' }}>🤖 EA Auto-Sync</h2>
+                <p style={{ color: '#475569', fontSize: '13px', margin: 0 }}>Auto-import trades from MT4/MT5 in real-time</p>
+              </div>
+              <button onClick={() => setShowEAModal(false)}
+                style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '22px' }}>×</button>
+            </div>
+
+            <div style={{ background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.2)', borderRadius: '14px', padding: '18px', marginBottom: '20px' }}>
+              <div style={{ color: '#c084fc', fontWeight: '700', fontSize: '14px', marginBottom: '12px' }}>How it works</div>
+              {[
+                { n: '1', text: 'Generate your unique API key below' },
+                { n: '2', text: 'Download the Ghost Trader EA file (.mq4 or .mq5)' },
+                { n: '3', text: 'Install EA on your MT4/MT5 chart' },
+                { n: '4', text: 'Paste your API key into the EA settings' },
+                { n: '5', text: 'Every trade syncs automatically in real-time' },
+              ].map(({ n, text }) => (
+                <div key={n} style={{ display: 'flex', gap: '10px', marginBottom: '8px', alignItems: 'flex-start' }}>
+                  <div style={{
+                    width: '22px', height: '22px', borderRadius: '50%', flexShrink: 0,
+                    background: 'rgba(168,85,247,0.2)', border: '1px solid rgba(168,85,247,0.4)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#c084fc', fontSize: '11px', fontWeight: '700',
+                  }}>{n}</div>
+                  <span style={{ color: '#94a3b8', fontSize: '13px', lineHeight: '1.5' }}>{text}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>
+                Your EA API Key
+              </div>
+              {!eaKey ? (
+                <button onClick={loadEAKey}
+                  style={{
+                    width: '100%', padding: '14px', borderRadius: '10px',
+                    border: '1px dashed rgba(168,85,247,0.4)',
+                    background: 'rgba(168,85,247,0.05)',
+                    color: '#c084fc', fontWeight: '700', fontSize: '14px', cursor: 'pointer',
+                  }}>
+                  🔑 Load / Generate API Key
+                </button>
+              ) : (
+                <div>
+                  <div style={{
+                    display: 'flex', gap: '8px', alignItems: 'center',
+                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(168,85,247,0.25)',
+                    borderRadius: '10px', padding: '12px 14px', marginBottom: '10px',
+                  }}>
+                    <code style={{ flex: 1, color: '#c084fc', fontSize: '12px', wordBreak: 'break-all', fontFamily: 'monospace' }}>
+                      {eaKey}
+                    </code>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(eaKey); alert('Copied!') }}
+                      style={{ background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '6px', padding: '6px 10px', color: '#c084fc', fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}>
+                      Copy
+                    </button>
+                  </div>
+                  <button onClick={generateEAKey} disabled={eaKeyLoading}
+                    style={{ background: 'transparent', border: 'none', color: '#475569', fontSize: '12px', cursor: 'pointer', textDecoration: 'underline' }}>
+                    {eaKeyLoading ? 'Generating...' : '↻ Generate new key (invalidates old key)'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '14px', padding: '18px', marginBottom: '20px' }}>
+              <div style={{ color: 'white', fontWeight: '700', fontSize: '14px', marginBottom: '14px' }}>Download EA File</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                {[
+                  { label: 'MT4 EA', ext: '.ex4', icon: '📊', version: 4 as const },
+                  { label: 'MT5 EA', ext: '.ex5', icon: '📈', version: 5 as const },
+                ].map(({ label, ext, icon, version }) => (
+                  <button key={ext}
+                    onClick={() => {
+                      const mqlCode = generateMQLCode(eaKey || 'YOUR_API_KEY_HERE', version)
+                      const blob = new Blob([mqlCode], { type: 'text/plain' })
+                      const url = URL.createObjectURL(blob)
+                      const a = document.createElement('a')
+                      a.href = url
+                      a.download = `GhostTraderEA${version === 4 ? '.mq4' : '.mq5'}`
+                      a.click()
+                      URL.revokeObjectURL(url)
+                    }}
+                    style={{
+                      padding: '14px', borderRadius: '10px',
+                      border: '1px solid rgba(59,130,246,0.2)',
+                      background: 'rgba(59,130,246,0.05)',
+                      color: 'white', cursor: 'pointer', textAlign: 'center',
+                    }}>
+                    <div style={{ fontSize: '24px', marginBottom: '6px' }}>{icon}</div>
+                    <div style={{ fontWeight: '700', fontSize: '13px' }}>{label}</div>
+                    <div style={{ color: '#475569', fontSize: '11px' }}>Download {ext}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '16px', marginBottom: '16px' }}>
+              <div style={{ color: '#475569', fontSize: '12px', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase' }}>API Endpoint</div>
+              <code style={{ color: '#94a3b8', fontSize: '12px', display: 'block', wordBreak: 'break-all' }}>
+                POST {typeof window !== 'undefined' ? window.location.origin : ''}/api/ea-sync
+              </code>
+              <code style={{ color: '#475569', fontSize: '11px', display: 'block', marginTop: '4px' }}>
+                Header: x-api-key: your_ea_key
+              </code>
+            </div>
+
+            <button onClick={() => setShowEAModal(false)}
+              style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(59,130,246,0.2)', background: 'transparent', color: '#94a3b8', fontWeight: '600', cursor: 'pointer' }}>
+              Close
+            </button>
           </div>
         </div>
       )}
