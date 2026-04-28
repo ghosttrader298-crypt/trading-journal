@@ -14,7 +14,6 @@ function generateMQLCode(apiKey: string, version: 4 | 5): string {
   const endpoint = typeof window !== 'undefined'
     ? `${window.location.origin}/api/ea-sync`
     : 'https://your-domain.com/api/ea-sync'
-
   return `//+------------------------------------------------------------------+
 //| Ghost Trader EA — Auto Sync v1.0                                  |
 //+------------------------------------------------------------------+
@@ -45,7 +44,6 @@ void SyncTrades() {
    string jsonBody = "{";
    jsonBody += "\\"account_id\\": \\"" + AccountId + "\\",";
    jsonBody += "\\"trades\\": [";
-
    for(int i = 0; i < MathMin(total, 50); i++) {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_HISTORY)) continue;
       if(i > 0) jsonBody += ",";
@@ -65,15 +63,12 @@ void SyncTrades() {
       jsonBody += "\\"comment\\": \\"" + OrderComment() + "\\"";
       jsonBody += "}";
    }
-
    jsonBody += "]}";
-
    char data[];
    char result[];
    string headers = "Content-Type: application/json\\r\\nx-api-key: " + ApiKey;
    StringToCharArray(jsonBody, data, 0, StringLen(jsonBody));
    int res = WebRequest("POST", ServerUrl, headers, 5000, data, result, headers);
-
    if(res == 200) {
       Print("Ghost Trader: Sync successful");
    } else {
@@ -87,13 +82,22 @@ function TradeLogContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { activeAccount } = useAccounts()
-  const { trades, loading, createTrade, deleteTrade, refetch } = useTrades({ account_id: activeAccount?.id })
 
-  // Existing state
+  // Read session filter from URL
+  const sessionFilter = searchParams.get('session') || undefined
+
+  const { trades, loading, createTrade, deleteTrade, refetch } = useTrades({
+    account_id: sessionFilter ? undefined : activeAccount?.id,
+    import_session_id: sessionFilter,
+  })
+
+  // Filter & sort state
   const [marketFilter, setMarketFilter] = useState('ALL')
   const [dirFilter, setDirFilter] = useState('ALL')
   const [search, setSearch] = useState('')
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null)
+
+  // Add trade modal state
   const [showAddModal, setShowAddModal] = useState(searchParams.get('add') === '1')
   const [addStep, setAddStep] = useState(1)
   const [saving, setSaving] = useState(false)
@@ -122,6 +126,11 @@ function TradeLogContent() {
   const [eaKeyLoading, setEaKeyLoading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
 
+  // Session import fields
+  const [importSessionName, setImportSessionName] = useState('')
+  const [importBrokerName, setImportBrokerName] = useState('')
+  const [importDescription, setImportDescription] = useState('')
+
   const filtered = useMemo(() => {
     return trades.filter(t => {
       if (marketFilter !== 'ALL' && t.market_type !== marketFilter) return false
@@ -145,10 +154,12 @@ function TradeLogContent() {
     }
   }, [filtered])
 
-  // Import handlers
   const handleFileSelect = (file: File) => {
     setImportFile(file)
     setImportResult(null)
+    if (!importSessionName) {
+      setImportSessionName(file.name.replace('.csv', '').replace(/_/g, ' '))
+    }
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
@@ -168,6 +179,9 @@ function TradeLogContent() {
     const fd = new FormData()
     fd.append('file', importFile)
     fd.append('account_id', activeAccount.id)
+    fd.append('session_name', importSessionName || `My Trade Log ${new Date().toLocaleDateString()}`)
+    fd.append('broker_name', importBrokerName)
+    fd.append('description', importDescription)
     const res = await fetch('/api/import/csv', { method: 'POST', body: fd })
     const data = await res.json()
     setImporting(false)
@@ -177,6 +191,16 @@ function TradeLogContent() {
     } else {
       setImportResult({ error: data.error })
     }
+  }
+
+  const resetImportModal = () => {
+    setShowImportModal(false)
+    setImportFile(null)
+    setImportPreview([])
+    setImportResult(null)
+    setImportSessionName('')
+    setImportBrokerName('')
+    setImportDescription('')
   }
 
   const loadEAKey = async () => {
@@ -222,9 +246,7 @@ function TradeLogContent() {
     outline: 'none', boxSizing: 'border-box',
   }
 
-  const selectStyle: React.CSSProperties = {
-    ...inputStyle, background: '#0a0f1e',
-  }
+  const selectStyle: React.CSSProperties = { ...inputStyle, background: '#0a0f1e' }
 
   return (
     <div style={{ maxWidth: '1400px' }}>
@@ -236,8 +258,7 @@ function TradeLogContent() {
           <p style={{ color: '#475569', fontSize: '13px', margin: 0 }}>Track and analyse every trade</p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setShowImportModal(true)}
+          <button onClick={() => setShowImportModal(true)}
             style={{
               padding: '9px 14px', borderRadius: '10px',
               border: '1px solid rgba(59,130,246,0.3)',
@@ -248,8 +269,7 @@ function TradeLogContent() {
             }}>
             📥 Import CSV
           </button>
-          <button
-            onClick={() => { setShowEAModal(true); loadEAKey() }}
+          <button onClick={() => { setShowEAModal(true); loadEAKey() }}
             style={{
               padding: '9px 14px', borderRadius: '10px',
               border: '1px solid rgba(168,85,247,0.3)',
@@ -260,8 +280,7 @@ function TradeLogContent() {
             }}>
             🤖 EA Auto-Sync
           </button>
-          <button
-            onClick={() => setShowAddModal(true)}
+          <button onClick={() => setShowAddModal(true)}
             style={{
               padding: '10px 16px', borderRadius: '10px', border: 'none',
               background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
@@ -272,6 +291,37 @@ function TradeLogContent() {
           </button>
         </div>
       </div>
+
+      {/* Session filter banner */}
+      {sessionFilter && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '12px 16px', borderRadius: '12px', marginBottom: '16px',
+          background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.3)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '16px' }}>🔍</span>
+            <div>
+              <span style={{ color: 'white', fontWeight: '700', fontSize: '13px' }}>
+                Viewing Import Session trades only
+              </span>
+              <span style={{ color: '#475569', fontSize: '12px', marginLeft: '8px' }}>
+                {trades.length} trades in this session
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => router.push('/dashboard/trade-log')}
+            style={{
+              padding: '6px 14px', borderRadius: '8px',
+              border: '1px solid rgba(59,130,246,0.3)',
+              background: 'transparent', color: '#60a5fa',
+              fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+            }}>
+            ✕ Clear Filter
+          </button>
+        </div>
+      )}
 
       {/* Stats strip */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', overflowX: 'auto', paddingBottom: '4px' }}>
@@ -338,7 +388,7 @@ function TradeLogContent() {
         <div style={{ textAlign: 'center', padding: '60px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(59,130,246,0.15)', borderRadius: '16px' }}>
           <div style={{ fontSize: '40px', marginBottom: '12px' }}>📋</div>
           <div style={{ color: 'white', fontWeight: '600', marginBottom: '8px' }}>No trades yet</div>
-          <div style={{ color: '#475569', fontSize: '13px' }}>Add your first trade to get started</div>
+          <div style={{ color: '#475569', fontSize: '13px' }}>Add your first trade or import a CSV to get started</div>
         </div>
       ) : (
         <>
@@ -408,10 +458,7 @@ function TradeLogContent() {
                       color: trade.direction === 'BUY' ? '#3b82f6' : '#ef4444',
                     }}>{trade.direction}</span>
                   </div>
-                  <span style={{
-                    fontWeight: '800', fontSize: '16px',
-                    color: (trade.pnl_amount || 0) >= 0 ? '#3b82f6' : '#ef4444',
-                  }}>
+                  <span style={{ fontWeight: '800', fontSize: '16px', color: (trade.pnl_amount || 0) >= 0 ? '#3b82f6' : '#ef4444' }}>
                     {trade.pnl_amount != null ? `${trade.pnl_amount >= 0 ? '+' : ''}$${trade.pnl_amount.toFixed(2)}` : '-'}
                   </span>
                 </div>
@@ -538,8 +585,7 @@ function TradeLogContent() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 300, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }} className="modal-backdrop">
           <div style={{
             background: '#0a0f1e', border: '1px solid rgba(59,130,246,0.25)',
-            borderRadius: '20px 20px 0 0',
-            width: '100%', maxWidth: '600px',
+            borderRadius: '20px 20px 0 0', width: '100%', maxWidth: '600px',
             maxHeight: '90vh', overflowY: 'auto', padding: '24px',
           }} className="modal-desktop">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -744,7 +790,7 @@ function TradeLogContent() {
                 <h2 style={{ color: 'white', fontWeight: '800', fontSize: '20px', margin: '0 0 4px 0' }}>📥 Import CSV</h2>
                 <p style={{ color: '#475569', fontSize: '13px', margin: 0 }}>Supports MT4, MT5, cTrader and generic broker exports</p>
               </div>
-              <button onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportResult(null) }}
+              <button onClick={resetImportModal}
                 style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '22px' }}>×</button>
             </div>
 
@@ -758,6 +804,46 @@ function TradeLogContent() {
             </div>
 
             {!importResult && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                <div>
+                  <label style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '5px' }}>
+                    Session Name *
+                  </label>
+                  <input
+                    value={importSessionName}
+                    onChange={e => setImportSessionName(e.target.value)}
+                    placeholder="e.g. My Trade Log 1, My Trade Log 2..."
+                    style={inputStyle}
+                  />
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div>
+                    <label style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '5px' }}>
+                      Broker (optional)
+                    </label>
+                    <input
+                      value={importBrokerName}
+                      onChange={e => setImportBrokerName(e.target.value)}
+                      placeholder="e.g. IC Markets, FTMO..."
+                      style={inputStyle}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '5px' }}>
+                      Notes (optional)
+                    </label>
+                    <input
+                      value={importDescription}
+                      onChange={e => setImportDescription(e.target.value)}
+                      placeholder="e.g. Phase 1 challenge..."
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!importResult && (
               <div
                 onDragOver={e => { e.preventDefault(); setDragOver(true) }}
                 onDragLeave={() => setDragOver(false)}
@@ -765,12 +851,12 @@ function TradeLogContent() {
                 onClick={() => document.getElementById('csv-file-input')?.click()}
                 style={{
                   border: `2px dashed ${dragOver ? '#3b82f6' : importFile ? 'rgba(16,185,129,0.5)' : 'rgba(59,130,246,0.25)'}`,
-                  borderRadius: '14px', padding: '32px', textAlign: 'center', cursor: 'pointer',
+                  borderRadius: '14px', padding: '28px', textAlign: 'center', cursor: 'pointer',
                   background: dragOver ? 'rgba(59,130,246,0.08)' : importFile ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.02)',
                   transition: 'all 0.2s', marginBottom: '16px',
                 }}>
-                <div style={{ fontSize: '36px', marginBottom: '10px' }}>{importFile ? '✅' : '📂'}</div>
-                <div style={{ color: importFile ? '#10b981' : 'white', fontWeight: '700', fontSize: '15px', marginBottom: '6px' }}>
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>{importFile ? '✅' : '📂'}</div>
+                <div style={{ color: importFile ? '#10b981' : 'white', fontWeight: '700', fontSize: '15px', marginBottom: '4px' }}>
                   {importFile ? importFile.name : 'Drop your CSV file here'}
                 </div>
                 <div style={{ color: '#475569', fontSize: '13px' }}>
@@ -819,7 +905,10 @@ function TradeLogContent() {
                   <div style={{ color: '#ef4444', fontWeight: '600' }}>❌ {importResult.error}</div>
                 ) : (
                   <>
-                    <div style={{ color: '#10b981', fontWeight: '800', fontSize: '18px', marginBottom: '12px' }}>✅ Import Complete</div>
+                    <div style={{ color: '#10b981', fontWeight: '800', fontSize: '18px', marginBottom: '4px' }}>✅ Import Complete</div>
+                    <div style={{ color: '#475569', fontSize: '13px', marginBottom: '16px' }}>
+                      Session: <strong style={{ color: '#60a5fa' }}>{importResult.session_name}</strong>
+                    </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                       {[
                         { label: 'Format Detected', value: importResult.format_detected },
@@ -834,13 +923,22 @@ function TradeLogContent() {
                         </div>
                       ))}
                     </div>
+                    <button
+                      onClick={() => router.push('/dashboard/import-sessions')}
+                      style={{
+                        marginTop: '14px', width: '100%', padding: '10px', borderRadius: '10px',
+                        border: '1px solid rgba(59,130,246,0.3)', background: 'rgba(59,130,246,0.1)',
+                        color: '#60a5fa', fontWeight: '600', fontSize: '13px', cursor: 'pointer',
+                      }}>
+                      📦 View Import Sessions →
+                    </button>
                   </>
                 )}
               </div>
             )}
 
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={() => { setShowImportModal(false); setImportFile(null); setImportPreview([]); setImportResult(null) }}
+              <button onClick={resetImportModal}
                 style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1px solid rgba(59,130,246,0.2)', background: 'transparent', color: '#94a3b8', fontWeight: '600', cursor: 'pointer' }}>
                 {importResult ? 'Close' : 'Cancel'}
               </button>
@@ -883,7 +981,7 @@ function TradeLogContent() {
                 { n: '2', text: 'Download the Ghost Trader EA file (.mq4 or .mq5)' },
                 { n: '3', text: 'Install EA on your MT4/MT5 chart' },
                 { n: '4', text: 'Paste your API key into the EA settings' },
-                { n: '5', text: 'Every trade syncs automatically in real-time' },
+                { n: '5', text: 'Every trade syncs automatically every 30 seconds' },
               ].map(({ n, text }) => (
                 <div key={n} style={{ display: 'flex', gap: '10px', marginBottom: '8px', alignItems: 'flex-start' }}>
                   <div style={{
@@ -921,8 +1019,7 @@ function TradeLogContent() {
                     <code style={{ flex: 1, color: '#c084fc', fontSize: '12px', wordBreak: 'break-all', fontFamily: 'monospace' }}>
                       {eaKey}
                     </code>
-                    <button
-                      onClick={() => { navigator.clipboard.writeText(eaKey); alert('Copied!') }}
+                    <button onClick={() => { navigator.clipboard.writeText(eaKey); alert('Copied!') }}
                       style={{ background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: '6px', padding: '6px 10px', color: '#c084fc', fontSize: '12px', cursor: 'pointer', flexShrink: 0 }}>
                       Copy
                     </button>

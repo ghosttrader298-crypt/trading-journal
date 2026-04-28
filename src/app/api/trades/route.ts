@@ -9,7 +9,8 @@ export const GET = requireUser(async (req, _ctx, user: JWTPayload) => {
   const status = searchParams.get('status')
   const market_type = searchParams.get('market_type')
   const direction = searchParams.get('direction')
-  const limit = parseInt(searchParams.get('limit') || '100')
+  const import_session_id = searchParams.get('import_session_id')
+  const limit = parseInt(searchParams.get('limit') || '500')
   const offset = parseInt(searchParams.get('offset') || '0')
 
   let query = supabaseAdmin
@@ -23,6 +24,7 @@ export const GET = requireUser(async (req, _ctx, user: JWTPayload) => {
   if (status) query = query.eq('status', status)
   if (market_type) query = query.eq('market_type', market_type)
   if (direction) query = query.eq('direction', direction)
+  if (import_session_id) query = query.eq('import_session_id', import_session_id)
 
   const { data, error, count } = await query
 
@@ -43,7 +45,6 @@ export const POST = requireUser(async (req, _ctx, user: JWTPayload) => {
     )
   }
 
-  // Verify account ownership
   const { data: account } = await supabaseAdmin
     .from('trading_accounts')
     .select('id')

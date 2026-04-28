@@ -1,5 +1,5 @@
 'use client'
-import { useEffect } from 'react'
+import { useEffect, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import Sidebar from '@/components/dashboard/Sidebar'
@@ -19,12 +19,13 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#050810',
+        minHeight: '100vh', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: '#050810',
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{
-            width: '48px', height: '48px', borderRadius: '12px', margin: '0 auto 16px',
+            width: '48px', height: '48px', borderRadius: '12px',
+            margin: '0 auto 16px',
             background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
@@ -32,7 +33,9 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
               <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
             </svg>
           </div>
-          <div style={{ color: '#3b82f6', fontSize: '14px', fontWeight: '600' }}>Loading Ghost Trader...</div>
+          <div style={{ color: '#3b82f6', fontSize: '14px', fontWeight: '600' }}>
+            Loading Ghost Trader...
+          </div>
         </div>
       </div>
     )
@@ -44,13 +47,18 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
     <div style={{ display: 'flex', minHeight: '100vh', background: '#050810' }}>
       <Sidebar />
       <div style={{
-        flex: 1,
-        marginLeft: '240px',
+        flex: 1, marginLeft: '240px',
         display: 'flex', flexDirection: 'column',
-        minHeight: '100vh',
-        transition: 'margin-left 0.2s ease',
+        minHeight: '100vh', transition: 'margin-left 0.2s ease',
       }} className="dashboard-content">
-        <TopNav />
+        <Suspense fallback={
+          <div style={{
+            height: '64px', background: 'rgba(5,8,16,0.8)',
+            borderBottom: '1px solid rgba(59,130,246,0.1)',
+          }} />
+        }>
+          <TopNav />
+        </Suspense>
         <main style={{ flex: 1, padding: '24px', overflowX: 'hidden' }}>
           {children}
         </main>

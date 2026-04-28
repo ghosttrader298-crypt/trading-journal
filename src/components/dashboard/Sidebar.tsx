@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext'
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: '⊞' },
   { label: 'Trade Log', href: '/dashboard/trade-log', icon: '📋' },
+  { label: 'Import Sessions', href: '/dashboard/import-sessions', icon: '📦' },
   { label: 'Daily Journal', href: '/dashboard/journal', icon: '📓' },
   { label: 'Analytics', href: '/dashboard/analytics', icon: '📊' },
   { label: 'Psychology', href: '/dashboard/psychology', icon: '🧠' },
@@ -16,7 +17,6 @@ const navItems = [
   { label: 'Reports', href: '/dashboard/reports', icon: '📄' },
   { label: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
 ]
-
 export default function Sidebar() {
   const pathname = usePathname()
   const { user, logout } = useAuth()

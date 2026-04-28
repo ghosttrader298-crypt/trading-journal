@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="384" height="384" viewBox="0 0 384 384">
+  <rect width="384" height="384" rx="76.80000000000001" fill="#050810"/>
+  <rect width="384" height="384" rx="76.80000000000001" fill="url(#grad)"/>
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3b82f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2563eb;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <polyline points="268.79999999999995,115.19999999999999 180.48,230.39999999999998 126.72,180.48 57.599999999999994,249.60000000000002" 
+    fill="none" stroke="white" stroke-width="23.04" stroke-linecap="round" stroke-linejoin="round"/>
+  <polyline points="215.04000000000002,115.19999999999999 268.79999999999995,115.19999999999999 268.79999999999995,168.96" 
+    fill="none" stroke="white" stroke-width="23.04" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

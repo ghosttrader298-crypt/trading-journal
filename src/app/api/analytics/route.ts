@@ -6,19 +6,25 @@ import { JWTPayload } from '@/types'
 export const GET = requireUser(async (req, _ctx, user: JWTPayload) => {
   const { searchParams } = new URL(req.url)
   const account_id = searchParams.get('account_id')
+  const import_session_id = searchParams.get('import_session_id')
   const days = parseInt(searchParams.get('days') || '30')
-
-  const startDate = new Date()
-  startDate.setDate(startDate.getDate() - days)
 
   let query = supabaseAdmin
     .from('trades')
     .select('*')
     .eq('user_id', user.sub)
     .eq('status', 'CLOSED')
-    .gte('closed_at', startDate.toISOString())
 
-  if (account_id) query = query.eq('account_id', account_id)
+  if (import_session_id) {
+    // Filter by specific import session — ignore date and account filters
+    query = query.eq('import_session_id', import_session_id)
+  } else {
+    // Normal mode — filter by date range and optionally account
+    const startDate = new Date()
+    startDate.setDate(startDate.getDate() - days)
+    query = query.gte('closed_at', startDate.toISOString())
+    if (account_id) query = query.eq('account_id', account_id)
+  }
 
   const { data: trades, error } = await query
 
@@ -29,66 +35,38 @@ export const GET = requireUser(async (req, _ctx, user: JWTPayload) => {
   if (!trades || trades.length === 0) {
     return NextResponse.json({
       data: {
-        total_trades: 0,
-        winning_trades: 0,
-        losing_trades: 0,
-        win_rate: 0,
-        total_pnl: 0,
-        avg_pnl: 0,
-        best_trade: 0,
-        worst_trade: 0,
-        profit_factor: 0,
-        avg_risk_reward: 0,
-        expectancy: 0,
-        max_drawdown: 0,
-        avg_discipline_score: 0,
-        revenge_trades: 0,
-        fomo_trades: 0,
-        daily_pnl: [],
-        equity_curve: [],
-        pnl_by_session: {},
-        pnl_by_weekday: {},
-        pnl_by_setup: {},
+        total_trades: 0, winning_trades: 0, losing_trades: 0,
+        win_rate: 0, total_pnl: 0, avg_pnl: 0, best_trade: 0, worst_trade: 0,
+        profit_factor: 0, avg_risk_reward: 0, expectancy: 0, max_drawdown: 0,
+        avg_discipline_score: 0, revenge_trades: 0, fomo_trades: 0,
+        daily_pnl: [], equity_curve: [], pnl_by_session: {}, pnl_by_weekday: {}, pnl_by_setup: {},
       },
     })
   }
 
-  // Core calculations
   const total_trades = trades.length
   const winning_trades = trades.filter(t => (t.pnl_amount || 0) > 0).length
   const losing_trades = trades.filter(t => (t.pnl_amount || 0) < 0).length
-  const win_rate = total_trades > 0 ? (winning_trades / total_trades) * 100 : 0
-
+  const win_rate = (winning_trades / total_trades) * 100
   const total_pnl = trades.reduce((sum, t) => sum + (t.pnl_amount || 0), 0)
-  const avg_pnl = total_trades > 0 ? total_pnl / total_trades : 0
-
+  const avg_pnl = total_pnl / total_trades
   const pnl_values = trades.map(t => t.pnl_amount || 0)
   const best_trade = Math.max(...pnl_values)
   const worst_trade = Math.min(...pnl_values)
 
-  const gross_profit = trades
-    .filter(t => (t.pnl_amount || 0) > 0)
-    .reduce((sum, t) => sum + (t.pnl_amount || 0), 0)
-  const gross_loss = Math.abs(
-    trades
-      .filter(t => (t.pnl_amount || 0) < 0)
-      .reduce((sum, t) => sum + (t.pnl_amount || 0), 0)
-  )
+  const gross_profit = trades.filter(t => (t.pnl_amount || 0) > 0).reduce((sum, t) => sum + (t.pnl_amount || 0), 0)
+  const gross_loss = Math.abs(trades.filter(t => (t.pnl_amount || 0) < 0).reduce((sum, t) => sum + (t.pnl_amount || 0), 0))
   const profit_factor = gross_loss > 0 ? gross_profit / gross_loss : gross_profit > 0 ? 999 : 0
 
   const rr_values = trades.filter(t => t.risk_reward).map(t => t.risk_reward || 0)
-  const avg_risk_reward = rr_values.length > 0
-    ? rr_values.reduce((a, b) => a + b, 0) / rr_values.length
-    : 0
+  const avg_risk_reward = rr_values.length > 0 ? rr_values.reduce((a, b) => a + b, 0) / rr_values.length : 0
 
   const avg_win = winning_trades > 0 ? gross_profit / winning_trades : 0
   const avg_loss = losing_trades > 0 ? gross_loss / losing_trades : 0
   const expectancy = (win_rate / 100) * avg_win - ((100 - win_rate) / 100) * avg_loss
 
   // Max drawdown
-  let peak = 0
-  let max_drawdown = 0
-  let running = 0
+  let peak = 0, max_drawdown = 0, running = 0
   trades
     .sort((a, b) => new Date(a.closed_at!).getTime() - new Date(b.closed_at!).getTime())
     .forEach(t => {
@@ -98,15 +76,12 @@ export const GET = requireUser(async (req, _ctx, user: JWTPayload) => {
       if (dd > max_drawdown) max_drawdown = dd
     })
 
-  // Psychology
   const discipline_scores = trades.filter(t => t.discipline_score).map(t => t.discipline_score!)
   const avg_discipline_score = discipline_scores.length > 0
-    ? discipline_scores.reduce((a, b) => a + b, 0) / discipline_scores.length
-    : 0
+    ? discipline_scores.reduce((a, b) => a + b, 0) / discipline_scores.length : 0
   const revenge_trades = trades.filter(t => t.is_revenge_trade).length
   const fomo_trades = trades.filter(t => t.is_fomo_trade).length
 
-  // Daily PnL
   const dailyMap: Record<string, number> = {}
   trades.forEach(t => {
     const date = t.closed_at?.split('T')[0] || ''
@@ -116,21 +91,18 @@ export const GET = requireUser(async (req, _ctx, user: JWTPayload) => {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, pnl]) => ({ date, pnl }))
 
-  // Equity curve
   let equity = 0
   const equity_curve = daily_pnl.map(({ date, pnl }) => {
     equity += pnl
     return { date, equity }
   })
 
-  // PnL by session
   const pnl_by_session: Record<string, number> = {}
   trades.forEach(t => {
-    const session = t.session || 'UNKNOWN'
-    pnl_by_session[session] = (pnl_by_session[session] || 0) + (t.pnl_amount || 0)
+    const s = t.session || 'UNKNOWN'
+    pnl_by_session[s] = (pnl_by_session[s] || 0) + (t.pnl_amount || 0)
   })
 
-  // PnL by weekday
   const pnl_by_weekday: Record<string, number> = {}
   const days_names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
   trades.forEach(t => {
@@ -140,7 +112,6 @@ export const GET = requireUser(async (req, _ctx, user: JWTPayload) => {
     }
   })
 
-  // PnL by setup
   const pnl_by_setup: Record<string, number> = {}
   trades.forEach(t => {
     const setup = t.setup_type || 'Unknown'

@@ -8,6 +8,7 @@ interface UseTradesOptions {
   market_type?: string
   direction?: string
   limit?: number
+  import_session_id?: string
 }
 
 export function useTrades(options: UseTradesOptions = {}) {
@@ -25,6 +26,7 @@ export function useTrades(options: UseTradesOptions = {}) {
       if (options.market_type) params.set('market_type', options.market_type)
       if (options.direction) params.set('direction', options.direction)
       if (options.limit) params.set('limit', options.limit.toString())
+      if (options.import_session_id) params.set('import_session_id', options.import_session_id)
 
       const res = await fetch(`/api/trades?${params}`)
       if (!res.ok) throw new Error('Failed to fetch trades')
@@ -36,7 +38,14 @@ export function useTrades(options: UseTradesOptions = {}) {
     } finally {
       setLoading(false)
     }
-  }, [options.account_id, options.status, options.market_type, options.direction, options.limit])
+  }, [
+    options.account_id,
+    options.status,
+    options.market_type,
+    options.direction,
+    options.limit,
+    options.import_session_id,
+  ])
 
   useEffect(() => { fetchTrades() }, [fetchTrades])
 
@@ -68,5 +77,14 @@ export function useTrades(options: UseTradesOptions = {}) {
     return { error: 'Failed to delete' }
   }
 
-  return { trades, count, loading, error, refetch: fetchTrades, createTrade, updateTrade, deleteTrade }
+  return {
+    trades,
+    count,
+    loading,
+    error,
+    refetch: fetchTrades,
+    createTrade,
+    updateTrade,
+    deleteTrade,
+  }
 }
