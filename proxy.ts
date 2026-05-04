@@ -17,9 +17,10 @@ const PUBLIC_PATHS = [
   '/api/auth/forgot-password',
   '/api/auth/verify-otp',
   '/api/auth/reset-password',
+  '/admin/login',
 ]
 
-export async function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest)  {
   const { pathname } = request.nextUrl
 
   if (PUBLIC_PATHS.some(path => pathname.startsWith(path))) {
@@ -40,6 +41,9 @@ export async function proxy(request: NextRequest) {
 
   const token = request.cookies.get('gt_token')?.value
 
+  console.log('🍪 Token found:', !!token)
+  console.log('📍 Pathname:', pathname)
+
   if (!token) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -51,8 +55,12 @@ export async function proxy(request: NextRequest) {
     const { payload } = await jwtVerify(token, JWT_SECRET)
     const role = payload.role as string
 
+    console.log('✅ Token verified, role:', role)
+
     if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
+      console.log('🔒 Admin route hit')
       if (role !== 'SUPER_ADMIN' && role !== 'VIEW_ONLY_ADMIN') {
+        console.log('🚫 Role not allowed:', role)
         if (pathname.startsWith('/api/')) {
           return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
         }
@@ -61,7 +69,8 @@ export async function proxy(request: NextRequest) {
     }
 
     return NextResponse.next()
-  } catch {
+  } catch (error) {
+    console.log('❌ JWT error:', error)
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 })
     }

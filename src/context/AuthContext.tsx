@@ -1,6 +1,6 @@
 'use client'
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { SafeUser } from '@/types'
 
@@ -19,6 +19,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SafeUser | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
+  const hasFetched = useRef(false)
 
   const refreshUser = useCallback(async () => {
     try {
@@ -35,6 +36,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
+    if (hasFetched.current) return
+    hasFetched.current = true
+    setLoading(true)
     refreshUser().finally(() => setLoading(false))
   }, [refreshUser])
 
@@ -48,7 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await res.json()
       if (!res.ok) return { error: data.error }
       setUser(data.data)
-      router.push(data.redirectTo)
+      router.replace(data.redirectTo)
       return {}
     } catch {
       return { error: 'Network error. Please try again.' }
@@ -64,8 +68,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
       const data = await res.json()
       if (!res.ok) return { error: data.error }
-      // Do NOT set user or auto-login
-      // Redirect to login with success flag
       router.push('/auth/login?registered=1')
       return { success: true }
     } catch {
